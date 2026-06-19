@@ -45,7 +45,10 @@ const createMockBoard = () => {
   }))
 }
 
-let gameState = {
+// L'objet qui contiendra toutes les parties en cours
+const games = {}
+
+const createEmptyGame = () => ({
   phase: 'lobby',
   players: {},
   board: [],
@@ -54,63 +57,76 @@ let gameState = {
   guessesLeft: 0, 
   currentClue: { word: '', count: 0, team: '' },
   winner: null 
+})
+
+const switchTurn = (roomId) => {
+  const game = games[roomId]
+  if (!game) return
+  game.currentTurn = game.currentTurn === 'red' ? 'blue' : 'red'
+  game.turnPhase = 'clue'
+  game.guessesLeft = 0
+  game.currentClue = { word: '', count: 0, team: '' }
+  game.board.forEach(c => c.proposals = [])
 }
 
-const switchTurn = () => {
-  gameState.currentTurn = gameState.currentTurn === 'red' ? 'blue' : 'red'
-  gameState.turnPhase = 'clue'
-  gameState.guessesLeft = 0
-  gameState.currentClue = { word: '', count: 0, team: '' }
-  gameState.board.forEach(c => c.proposals = [])
-}
-
-const checkWinCondition = () => {
-  const remainingRed = gameState.board.filter(c => c.team === 'red' && !c.revealed).length
-  const remainingBlue = gameState.board.filter(c => c.team === 'blue' && !c.revealed).length
+const checkWinCondition = (roomId) => {
+  const game = games[roomId]
+  if (!game) return
+  const remainingRed = game.board.filter(c => c.team === 'red' && !c.revealed).length
+  const remainingBlue = game.board.filter(c => c.team === 'blue' && !c.revealed).length
   
-  if (remainingRed === 0) gameState.winner = 'red'
-  if (remainingBlue === 0) gameState.winner = 'blue'
+  if (remainingRed === 0) game.winner = 'red'
+  if (remainingBlue === 0) game.winner = 'blue'
 }
 
 io.on('connection', (socket) => {
-  socket.emit('game:state', { ...gameState, players: Object.values(gameState.players) })
 
-  socket.on('player:join', (playerData) => {
-    gameState.players[socket.id] = playerData
-    io.emit('game:state', { ...gameState, players: Object.values(gameState.players) })
+  // Un joueur rejoint un lien (une room spécifique)
+  socket.on('player:joinRoom', ({ roomId, player }) => {
+    socket.join(roomId)
+    
+    // Si la room n'existe pas, on la crée
+    if (!games[roomId]) {
+      games[roomId] = createEmptyGame()
+    }
+    
+    games[roomId].players[socket.id] = player
+    io.to(roomId).emit('game:state', { ...games[roomId], players: Object.values(games[roomId].players) })
   })
 
-  socket.on('game:start', () => {
-    gameState.board = createMockBoard()
-    const redCount = gameState.board.filter(c => c.team === 'red').length
+  socket.on('game:start', ({ roomId }) => {
+    const game = games[roomId]
+    if (!game) return
+
+    game.board = createMockBoard()
+    const redCount = game.board.filter(c => c.team === 'red').length
     
-    gameState.phase = 'playing'
-    gameState.winner = null
-    gameState.currentTurn = redCount === 9 ? 'red' : 'blue'
-    gameState.turnPhase = 'clue'
-    gameState.guessesLeft = 0
-    gameState.currentClue = { word: '', count: 0, team: '' }
+    game.phase = 'playing'
+    game.winner = null
+    game.currentTurn = redCount === 9 ? 'red' : 'blue'
+    game.turnPhase = 'clue'
+    game.guessesLeft = 0
+    game.currentClue = { word: '', count: 0, team: '' }
     
-    io.emit('game:state', { ...gameState, players: Object.values(gameState.players) })
+    io.to(roomId).emit('game:state', { ...game, players: Object.values(game.players) })
   })
 
-  // Le joueur est maintenant extrait de "data.player" pour éviter le bug de rechargement
-  socket.on('clue:submit', (data) => {
-    const player = data.player
-    if (!player || player.team !== gameState.currentTurn || player.role !== 'chef' || gameState.turnPhase !== 'clue') return
+  socket.on('clue:submit', ({ roomId, word, count, player }) => {
+    const game = games[roomId]
+    if (!game || !player || player.team !== game.currentTurn || player.role !== 'chef' || game.turnPhase !== 'clue') return
 
-    gameState.currentClue = { word: data.word, count: data.count, team: player.team }
-    gameState.turnPhase = 'guessing'
-    gameState.guessesLeft = data.count + 1 
+    game.currentClue = { word, count, team: player.team }
+    game.turnPhase = 'guessing'
+    game.guessesLeft = count + 1 
     
-    io.emit('game:state', { ...gameState, players: Object.values(gameState.players) })
+    io.to(roomId).emit('game:state', { ...game, players: Object.values(game.players) })
   })
 
-  socket.on('card:propose', (data) => {
-    const player = data.player
-    if (!player || player.team !== gameState.currentTurn || player.role !== 'joueur' || gameState.turnPhase !== 'guessing' || gameState.winner) return
+  socket.on('card:propose', ({ roomId, cardId, player }) => {
+    const game = games[roomId]
+    if (!game || !player || player.team !== game.currentTurn || player.role !== 'joueur' || game.turnPhase !== 'guessing' || game.winner) return
 
-    const card = gameState.board.find(c => c.cardId === data.cardId)
+    const card = game.board.find(c => c.cardId === cardId)
     if (!card || card.revealed) return
 
     const pseudo = player.pseudo
@@ -122,58 +138,70 @@ io.on('connection', (socket) => {
       card.proposals.push(pseudo)
     }
 
-    io.emit('game:state', { ...gameState, players: Object.values(gameState.players) })
+    io.to(roomId).emit('game:state', { ...game, players: Object.values(game.players) })
   })
 
-  socket.on('card:reveal', (data) => {
-    const player = data.player
-    if (!player || player.team !== gameState.currentTurn || player.role !== 'joueur' || gameState.turnPhase !== 'guessing' || gameState.winner) return
+  socket.on('card:reveal', ({ roomId, cardId, player }) => {
+    const game = games[roomId]
+    if (!game || !player || player.team !== game.currentTurn || player.role !== 'joueur' || game.turnPhase !== 'guessing' || game.winner) return
 
-    const cardIndex = gameState.board.findIndex(c => c.cardId === data.cardId)
-    if (cardIndex === -1 || gameState.board[cardIndex].revealed) return
+    const cardIndex = game.board.findIndex(c => c.cardId === cardId)
+    if (cardIndex === -1 || game.board[cardIndex].revealed) return
 
-    const card = gameState.board[cardIndex]
+    const card = game.board[cardIndex]
     card.revealed = true
 
-    const currentTeam = gameState.currentTurn
+    const currentTeam = game.currentTurn
     const oppositeTeam = currentTeam === 'red' ? 'blue' : 'red'
 
     if (card.team === 'assassin') {
-      gameState.winner = oppositeTeam
+      game.winner = oppositeTeam
     } else if (card.team === oppositeTeam || card.team === 'neutral') {
-      checkWinCondition() 
-      if (!gameState.winner) switchTurn()
+      checkWinCondition(roomId) 
+      if (!game.winner) switchTurn(roomId)
     } else if (card.team === currentTeam) {
-      checkWinCondition()
-      if (!gameState.winner) {
-        gameState.guessesLeft -= 1
-        if (gameState.guessesLeft <= 0) {
-          switchTurn()
+      checkWinCondition(roomId)
+      if (!game.winner) {
+        game.guessesLeft -= 1
+        if (game.guessesLeft <= 0) {
+          switchTurn(roomId)
         }
       }
     }
 
-    io.emit('game:state', { ...gameState, players: Object.values(gameState.players) })
+    io.to(roomId).emit('game:state', { ...game, players: Object.values(game.players) })
   })
 
-  socket.on('turn:pass', (data) => {
-    const player = data.player
-    if (!player || player.team !== gameState.currentTurn || player.role !== 'joueur' || gameState.turnPhase !== 'guessing' || gameState.winner) return
+  socket.on('turn:pass', ({ roomId, player }) => {
+    const game = games[roomId]
+    if (!game || !player || player.team !== game.currentTurn || player.role !== 'joueur' || game.turnPhase !== 'guessing' || game.winner) return
 
-    switchTurn()
-    io.emit('game:state', { ...gameState, players: Object.values(gameState.players) })
+    switchTurn(roomId)
+    io.to(roomId).emit('game:state', { ...game, players: Object.values(game.players) })
   })
 
-  socket.on('game:reset', () => {
-    gameState.phase = 'lobby'
-    gameState.board = []
-    gameState.winner = null
-    io.emit('game:state', { ...gameState, players: Object.values(gameState.players) })
+  socket.on('game:reset', ({ roomId }) => {
+    const game = games[roomId]
+    if (!game) return
+    game.phase = 'lobby'
+    game.board = []
+    game.winner = null
+    io.to(roomId).emit('game:state', { ...game, players: Object.values(game.players) })
   })
 
   socket.on('disconnect', () => {
-    delete gameState.players[socket.id]
-    io.emit('game:state', { ...gameState, players: Object.values(gameState.players) })
+    // Parcourir toutes les rooms pour voir où était le joueur
+    for (const roomId in games) {
+      if (games[roomId].players[socket.id]) {
+        delete games[roomId].players[socket.id]
+        io.to(roomId).emit('game:state', { ...games[roomId], players: Object.values(games[roomId].players) })
+        
+        // Optionnel: supprimer la partie si elle est vide pour libérer la mémoire
+        if (Object.keys(games[roomId].players).length === 0) {
+          delete games[roomId]
+        }
+      }
+    }
   })
 })
 

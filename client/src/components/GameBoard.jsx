@@ -1,7 +1,11 @@
 import { useEffect, useState } from 'react'
 import { io } from 'socket.io-client'
+import { useParams, useNavigate } from 'react-router-dom'
 
 function GameBoard() {
+  const { roomId } = useParams() // <-- Récupère l'ID depuis l'URL
+  const navigate = useNavigate()
+  
   const [socket, setSocket] = useState(null)
   const [game, setGame] = useState({ 
     phase: 'lobby', players: [], board: [], 
@@ -29,22 +33,27 @@ function GameBoard() {
   const handleJoinLobby = (e) => {
     e.preventDefault()
     if (!pseudo.trim() || !socket) return
-    socket.emit('player:join', currentPlayer)
+    socket.emit('player:joinRoom', { roomId, player: currentPlayer })
     setHasJoined(true)
   }
 
-  const handleStartGame = () => { if (socket) socket.emit('game:start') }
+  const handleStartGame = () => { if (socket) socket.emit('game:start', { roomId }) }
   const handleResetGame = () => { 
     if (socket) {
-      socket.emit('game:reset')
+      socket.emit('game:reset', { roomId })
       setHasJoined(false)
     }
+  }
+
+  const handleLeaveRoom = () => {
+    navigate('/')
   }
 
   const handleSendClue = (e) => {
     e.preventDefault()
     if (!inputWord.trim() || !socket) return
     socket.emit('clue:submit', { 
+      roomId,
       word: inputWord, 
       count: parseInt(inputCount, 10) || 1, 
       player: currentPlayer 
@@ -54,8 +63,14 @@ function GameBoard() {
 
   const handlePassTurn = () => {
     if (socket && game.currentTurn === selectedRole.team && game.turnPhase === 'guessing') {
-      socket.emit('turn:pass', { player: currentPlayer })
+      socket.emit('turn:pass', { roomId, player: currentPlayer })
     }
+  }
+
+  // Permet de copier l'URL dans le presse-papier en 1 clic
+  const copyInviteLink = () => {
+    navigator.clipboard.writeText(window.location.href)
+    alert("Lien copié dans le presse-papier !")
   }
 
   if (!isConnected) {
@@ -69,26 +84,39 @@ function GameBoard() {
   if (game.phase === 'lobby') {
     return (
       <section className="board-wrapper" style={{ maxWidth: '600px', margin: '0 auto', textAlign: 'center' }}>
-        <h1>Spy-Piece - Salle d'attente</h1>
+        <header style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '1.5rem' }}>
+          <h1 style={{ margin: 0 }}>Salle : {roomId}</h1>
+          <button onClick={handleLeaveRoom} style={{ padding: '0.5rem 1rem', background: '#374178', color: '#fff', border: 'none', borderRadius: '6px' }}>Quitter</button>
+        </header>
+
+        {/* Zone de partage de lien */}
+        <div style={{ marginBottom: '1.5rem', padding: '1rem', background: '#1f2548', borderRadius: '12px' }}>
+          <p style={{ margin: '0 0 0.5rem 0', color: '#9ca3af' }}>Invitez vos amis avec ce lien :</p>
+          <div style={{ display: 'flex', gap: '0.5rem' }}>
+            <input readOnly value={window.location.href} style={{ flex: 1, padding: '0.8rem', background: '#0f1223', color: '#fff', border: '1px solid #374178', borderRadius: '6px', textAlign: 'center' }} onClick={(e) => e.target.select()} />
+            <button onClick={copyInviteLink} style={{ padding: '0 1rem', background: '#3b82f6', color: '#fff', border: 'none', borderRadius: '6px', cursor: 'pointer' }}>Copier</button>
+          </div>
+        </div>
+
         {!hasJoined ? (
           <form onSubmit={handleJoinLobby} style={{ background: '#1f2548', padding: '2rem', borderRadius: '12px', display: 'flex', flexDirection: 'column', gap: '1rem' }}>
             <input type="text" placeholder="Votre pseudo..." value={pseudo} onChange={(e) => setPseudo(e.target.value)} style={{ padding: '0.8rem', borderRadius: '6px', border: '1px solid #374178', background: '#0f1223', color: '#fff' }} required />
             <h3 style={{ margin: '1rem 0 0.5rem' }}>Choisissez votre rôle :</h3>
             <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '1rem' }}>
-              <button type="button" onClick={() => setSelectedRole({ role: 'chef', team: 'red' })} style={{ padding: '1rem', background: selectedRole.role === 'chef' && selectedRole.team === 'red' ? '#ef4444' : '#374178', color: '#fff', border: 'none', borderRadius: '6px' }}>🏴‍☠️ Capitaine</button>
-              <button type="button" onClick={() => setSelectedRole({ role: 'joueur', team: 'red' })} style={{ padding: '1rem', background: selectedRole.role === 'joueur' && selectedRole.team === 'red' ? '#ef4444' : '#374178', color: '#fff', border: 'none', borderRadius: '6px' }}>⚔️ Matelot</button>
-              <button type="button" onClick={() => setSelectedRole({ role: 'chef', team: 'blue' })} style={{ padding: '1rem', background: selectedRole.role === 'chef' && selectedRole.team === 'blue' ? '#3b82f6' : '#374178', color: '#fff', border: 'none', borderRadius: '6px' }}>👁️ Amiral</button>
-              <button type="button" onClick={() => setSelectedRole({ role: 'joueur', team: 'blue' })} style={{ padding: '1rem', background: selectedRole.role === 'joueur' && selectedRole.team === 'blue' ? '#3b82f6' : '#374178', color: '#fff', border: 'none', borderRadius: '6px' }}>🛡️ Officier</button>
+              <button type="button" onClick={() => setSelectedRole({ role: 'chef', team: 'red' })} style={{ padding: '1rem', background: selectedRole.role === 'chef' && selectedRole.team === 'red' ? '#ef4444' : '#374178', color: '#fff', border: 'none', borderRadius: '6px', cursor: 'pointer' }}>🏴‍☠️ Capitaine</button>
+              <button type="button" onClick={() => setSelectedRole({ role: 'joueur', team: 'red' })} style={{ padding: '1rem', background: selectedRole.role === 'joueur' && selectedRole.team === 'red' ? '#ef4444' : '#374178', color: '#fff', border: 'none', borderRadius: '6px', cursor: 'pointer' }}>⚔️ Matelot</button>
+              <button type="button" onClick={() => setSelectedRole({ role: 'chef', team: 'blue' })} style={{ padding: '1rem', background: selectedRole.role === 'chef' && selectedRole.team === 'blue' ? '#3b82f6' : '#374178', color: '#fff', border: 'none', borderRadius: '6px', cursor: 'pointer' }}>👁️ Amiral</button>
+              <button type="button" onClick={() => setSelectedRole({ role: 'joueur', team: 'blue' })} style={{ padding: '1rem', background: selectedRole.role === 'joueur' && selectedRole.team === 'blue' ? '#3b82f6' : '#374178', color: '#fff', border: 'none', borderRadius: '6px', cursor: 'pointer' }}>🛡️ Officier</button>
             </div>
-            <button type="submit" style={{ marginTop: '1.5rem', padding: '1rem', background: '#10b981', color: '#fff', border: 'none', borderRadius: '6px' }}>Rejoindre</button>
+            <button type="submit" style={{ marginTop: '1.5rem', padding: '1rem', background: '#10b981', color: '#fff', border: 'none', borderRadius: '6px', cursor: 'pointer', fontWeight: 'bold' }}>Rejoindre la salle</button>
           </form>
         ) : (
           <div style={{ background: '#1f2548', padding: '2rem', borderRadius: '12px' }}>
-            <h3>Joueurs connectés</h3>
+            <h3>Joueurs dans la salle</h3>
             <ul style={{ listStyle: 'none', padding: 0, textAlign: 'left', background: '#0f1223', borderRadius: '6px' }}>
               {game.players.map((p, i) => <li key={i} style={{ padding: '0.8rem', borderBottom: '1px solid #374178', color: p.team === 'red' ? '#ef4444' : '#3b82f6' }}>{p.pseudo} - {p.team} {p.role}</li>)}
             </ul>
-            <button onClick={handleStartGame} style={{ padding: '1rem 2rem', background: '#e11d48', color: '#fff', border: 'none', borderRadius: '6px', width: '100%' }}>Lancer la partie</button>
+            <button onClick={handleStartGame} style={{ padding: '1rem 2rem', background: '#e11d48', color: '#fff', border: 'none', borderRadius: '6px', width: '100%', cursor: 'pointer', fontWeight: 'bold', marginTop: '1rem' }}>Lancer la partie</button>
           </div>
         )}
       </section>
@@ -107,10 +135,10 @@ function GameBoard() {
       <header style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '1rem' }}>
         <div>
           <h1>Spy-Piece</h1>
-          <p>La bataille pour le One Piece est lancée !</p>
+          <p style={{ margin: 0, color: '#9ca3af' }}>Salle : {roomId}</p>
         </div>
-        <button onClick={handleResetGame} style={{ padding: '0.5rem 1rem', background: '#e11d48', color: '#fff', border: 'none', borderRadius: '6px' }}>
-          Retour au Lobby
+        <button onClick={handleResetGame} style={{ padding: '0.5rem 1rem', background: '#e11d48', color: '#fff', border: 'none', borderRadius: '6px', cursor: 'pointer' }}>
+          Annuler la partie
         </button>
       </header>
 
@@ -143,7 +171,7 @@ function GameBoard() {
                 <form onSubmit={handleSendClue} style={{ marginTop: '1rem', display: 'flex', gap: '0.5rem' }}>
                   <input type="text" placeholder="Entrez votre indice (1 mot)..." value={inputWord} onChange={(e) => setInputWord(e.target.value)} style={{ padding: '0.5rem', borderRadius: '6px', background: '#0f1223', color: '#fff', flex: 1 }} required />
                   <input type="number" min="0" max="9" value={inputCount} onChange={(e) => setInputCount(e.target.value)} style={{ padding: '0.5rem', borderRadius: '6px', background: '#0f1223', color: '#fff', width: '60px' }} required />
-                  <button type="submit" style={{ padding: '0.5rem 1rem', background: '#10b981', color: '#fff', border: 'none', borderRadius: '6px' }}>Transmettre</button>
+                  <button type="submit" style={{ padding: '0.5rem 1rem', background: '#10b981', color: '#fff', border: 'none', borderRadius: '6px', cursor: 'pointer' }}>Transmettre</button>
                 </form>
               </>
             ) : (
@@ -232,13 +260,13 @@ function GameBoard() {
                   {canClick && (
                     <div style={{ display: 'flex', gap: '0.5rem' }}>
                       <button 
-                        onClick={(e) => { e.stopPropagation(); socket.emit('card:propose', { cardId: card.cardId, player: currentPlayer }); }}
+                        onClick={(e) => { e.stopPropagation(); socket.emit('card:propose', { roomId, cardId: card.cardId, player: currentPlayer }); }}
                         style={{ flex: 1, padding: '0.4rem', fontSize: '0.75rem', background: '#374178', color: '#fff', border: 'none', borderRadius: '4px', cursor: 'pointer' }}
                       >
                         Proposer
                       </button>
                       <button 
-                        onClick={(e) => { e.stopPropagation(); socket.emit('card:reveal', { cardId: card.cardId, player: currentPlayer }); }}
+                        onClick={(e) => { e.stopPropagation(); socket.emit('card:reveal', { roomId, cardId: card.cardId, player: currentPlayer }); }}
                         style={{ flex: 1, padding: '0.4rem', fontSize: '0.75rem', background: '#10b981', color: '#fff', border: 'none', borderRadius: '4px', cursor: 'pointer' }}
                       >
                         Révéler

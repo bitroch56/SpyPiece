@@ -16,5 +16,8 @@
   "bugs": {
     "url": "https://github.com/bitroch56/SpyPiece/issues"
   },
-  "homepage": "https://github.com/bitroch56/SpyPiece#readme"
+  "homepage": "https://github.com/bitroch56/SpyPiece#readme",
+  "dependencies": {
+    "react-router-dom": "^7.18.0"
+  }
 }
