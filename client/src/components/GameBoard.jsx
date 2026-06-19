@@ -1,12 +1,12 @@
 import { useEffect, useState } from 'react'
 import { io } from 'socket.io-client'
 
-const socket = io(import.meta.env.VITE_SOCKET_URL ?? 'http://localhost:3001')
-
 function GameBoard() {
   const [cards, setCards] = useState([])
 
   useEffect(() => {
+    const socket = io(import.meta.env.VITE_SOCKET_URL ?? 'http://localhost:3001')
+
     const onBoardState = (board) => {
       setCards(board)
     }
@@ -15,6 +15,7 @@ function GameBoard() {
 
     return () => {
       socket.off('board:state', onBoardState)
+      socket.disconnect()
     }
   }, [])
 

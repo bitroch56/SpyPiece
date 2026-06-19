@@ -14,7 +14,7 @@ Première ébauche de **Spy-Piece**, un jeu navigateur multijoueur en temps rée
 ### 1) Lancer le serveur
 
 ```bash
-cd /home/runner/work/SpyPiece/SpyPiece/server
+cd server
 npm install
 npm start
 ```
@@ -24,7 +24,7 @@ Serveur Socket.io disponible sur `http://localhost:3001`.
 ### 2) Lancer le client React
 
 ```bash
-cd /home/runner/work/SpyPiece/SpyPiece/client
+cd client
 npm install
 npm run dev
 ```

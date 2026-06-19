@@ -17,8 +17,16 @@ app.use(cors())
 
 const CARD_COUNT = 25
 
-const shuffle = (list) =>
-  [...list].sort(() => Math.random() - 0.5)
+const shuffle = (list) => {
+  const shuffled = [...list]
+
+  for (let i = shuffled.length - 1; i > 0; i -= 1) {
+    const randomIndex = Math.floor(Math.random() * (i + 1))
+    ;[shuffled[i], shuffled[randomIndex]] = [shuffled[randomIndex], shuffled[i]]
+  }
+
+  return shuffled
+}
 
 const createMockBoard = () =>
   shuffle(characters)
