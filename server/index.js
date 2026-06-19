@@ -41,19 +41,19 @@ const createMockBoard = () => {
     cardId: index + 1,
     team: shuffledRoles[index],
     revealed: false,
+    proposals: []
   }))
 }
 
-// ÉTAT GLOBAL ÉVOLUÉ
 let gameState = {
   phase: 'lobby',
   players: {},
   board: [],
   currentTurn: 'red',
-  turnPhase: 'clue', // 'clue' (Chef donne le mot) | 'guessing' (Joueurs devinent)
-  guessesLeft: 0, // Nombre de clics restants (mot + 1)
+  turnPhase: 'clue', 
+  guessesLeft: 0, 
   currentClue: { word: '', count: 0, team: '' },
-  winner: null // 'red' ou 'blue'
+  winner: null 
 }
 
 const switchTurn = () => {
@@ -61,6 +61,7 @@ const switchTurn = () => {
   gameState.turnPhase = 'clue'
   gameState.guessesLeft = 0
   gameState.currentClue = { word: '', count: 0, team: '' }
+  gameState.board.forEach(c => c.proposals = [])
 }
 
 const checkWinCondition = () => {
@@ -93,21 +94,42 @@ io.on('connection', (socket) => {
     io.emit('game:state', { ...gameState, players: Object.values(gameState.players) })
   })
 
-  socket.on('clue:submit', (clueData) => {
-    if (gameState.turnPhase !== 'clue') return
+  // Le joueur est maintenant extrait de "data.player" pour éviter le bug de rechargement
+  socket.on('clue:submit', (data) => {
+    const player = data.player
+    if (!player || player.team !== gameState.currentTurn || player.role !== 'chef' || gameState.turnPhase !== 'clue') return
 
-    gameState.currentClue = clueData
+    gameState.currentClue = { word: data.word, count: data.count, team: player.team }
     gameState.turnPhase = 'guessing'
-    gameState.guessesLeft = clueData.count + 1 // +1 pour la règle du bonus
+    gameState.guessesLeft = data.count + 1 
     
     io.emit('game:state', { ...gameState, players: Object.values(gameState.players) })
   })
 
-  socket.on('card:reveal', (cardId) => {
-    // Si ce n'est pas le moment de deviner ou que le jeu est fini, on annule
-    if (gameState.turnPhase !== 'guessing' || gameState.winner) return
+  socket.on('card:propose', (data) => {
+    const player = data.player
+    if (!player || player.team !== gameState.currentTurn || player.role !== 'joueur' || gameState.turnPhase !== 'guessing' || gameState.winner) return
 
-    const cardIndex = gameState.board.findIndex(c => c.cardId === cardId)
+    const card = gameState.board.find(c => c.cardId === data.cardId)
+    if (!card || card.revealed) return
+
+    const pseudo = player.pseudo
+    const propIndex = card.proposals.indexOf(pseudo)
+    
+    if (propIndex > -1) {
+      card.proposals.splice(propIndex, 1)
+    } else {
+      card.proposals.push(pseudo)
+    }
+
+    io.emit('game:state', { ...gameState, players: Object.values(gameState.players) })
+  })
+
+  socket.on('card:reveal', (data) => {
+    const player = data.player
+    if (!player || player.team !== gameState.currentTurn || player.role !== 'joueur' || gameState.turnPhase !== 'guessing' || gameState.winner) return
+
+    const cardIndex = gameState.board.findIndex(c => c.cardId === data.cardId)
     if (cardIndex === -1 || gameState.board[cardIndex].revealed) return
 
     const card = gameState.board[cardIndex]
@@ -116,20 +138,15 @@ io.on('connection', (socket) => {
     const currentTeam = gameState.currentTurn
     const oppositeTeam = currentTeam === 'red' ? 'blue' : 'red'
 
-    // RÉSOLUTION DES RÈGLES
     if (card.team === 'assassin') {
-      // Carte noire : Défaite immédiate
       gameState.winner = oppositeTeam
     } else if (card.team === oppositeTeam || card.team === 'neutral') {
-      // Mauvaise couleur ou neutre : Fin du tour
-      checkWinCondition() // Au cas où ils révèlent la dernière carte adverse
+      checkWinCondition() 
       if (!gameState.winner) switchTurn()
     } else if (card.team === currentTeam) {
-      // Bonne couleur : On continue
       checkWinCondition()
       if (!gameState.winner) {
         gameState.guessesLeft -= 1
-        // S'il n'y a plus d'essais (bonus inclus), fin du tour automatique
         if (gameState.guessesLeft <= 0) {
           switchTurn()
         }
@@ -139,12 +156,12 @@ io.on('connection', (socket) => {
     io.emit('game:state', { ...gameState, players: Object.values(gameState.players) })
   })
 
-  // Permet de passer le tour volontairement
-  socket.on('turn:pass', () => {
-    if (gameState.turnPhase === 'guessing' && !gameState.winner) {
-      switchTurn()
-      io.emit('game:state', { ...gameState, players: Object.values(gameState.players) })
-    }
+  socket.on('turn:pass', (data) => {
+    const player = data.player
+    if (!player || player.team !== gameState.currentTurn || player.role !== 'joueur' || gameState.turnPhase !== 'guessing' || gameState.winner) return
+
+    switchTurn()
+    io.emit('game:state', { ...gameState, players: Object.values(gameState.players) })
   })
 
   socket.on('game:reset', () => {

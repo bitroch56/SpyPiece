@@ -24,11 +24,12 @@ function GameBoard() {
     return () => s.disconnect()
   }, [])
 
-  // ACTIONS DU LOBBY
+  const currentPlayer = { pseudo, role: selectedRole.role, team: selectedRole.team }
+
   const handleJoinLobby = (e) => {
     e.preventDefault()
     if (!pseudo.trim() || !socket) return
-    socket.emit('player:join', { pseudo, role: selectedRole.role, team: selectedRole.team })
+    socket.emit('player:join', currentPlayer)
     setHasJoined(true)
   }
 
@@ -40,30 +41,20 @@ function GameBoard() {
     }
   }
 
-  // ACTIONS DE JEU
   const handleSendClue = (e) => {
     e.preventDefault()
     if (!inputWord.trim() || !socket) return
-    socket.emit('clue:submit', { word: inputWord, count: parseInt(inputCount, 10), team: selectedRole.team })
+    socket.emit('clue:submit', { 
+      word: inputWord, 
+      count: parseInt(inputCount, 10) || 1, 
+      player: currentPlayer 
+    })
     setInputWord('')
-  }
-
-  const handleCardClick = (cardId, isRevealed) => {
-    // CONDITIONS DE CLIC STRICTES
-    if (
-      selectedRole.role === 'chef' || // Un chef ne clique jamais
-      isRevealed ||                   // Carte déjà cliquée
-      game.winner ||                  // Partie terminée
-      game.currentTurn !== selectedRole.team || // Pas dans la bonne équipe
-      game.turnPhase !== 'guessing'   // Pas dans la phase de clic
-    ) return 
-    
-    socket.emit('card:reveal', cardId)
   }
 
   const handlePassTurn = () => {
     if (socket && game.currentTurn === selectedRole.team && game.turnPhase === 'guessing') {
-      socket.emit('turn:pass')
+      socket.emit('turn:pass', { player: currentPlayer })
     }
   }
 
@@ -75,7 +66,6 @@ function GameBoard() {
     )
   }
 
-  // --- VUE LOBBY --- (inchangée, raccourcie pour lisibilité)
   if (game.phase === 'lobby') {
     return (
       <section className="board-wrapper" style={{ maxWidth: '600px', margin: '0 auto', textAlign: 'center' }}>
@@ -105,11 +95,9 @@ function GameBoard() {
     )
   }
 
-  // --- VUE JEU EN COURS ---
   const totalRed = game.board.filter(c => c.team === 'red' && !c.revealed).length
   const totalBlue = game.board.filter(c => c.team === 'blue' && !c.revealed).length
 
-  // Variables pour simplifier l'affichage
   const isMyTurn = game.currentTurn === selectedRole.team
   const isGuessingPhase = game.turnPhase === 'guessing'
   const isCluePhase = game.turnPhase === 'clue'
@@ -126,14 +114,12 @@ function GameBoard() {
         </button>
       </header>
 
-      {/* BANNIÈRE DE VICTOIRE */}
       {game.winner && (
         <div style={{ background: game.winner === 'red' ? '#ef4444' : '#3b82f6', color: '#fff', padding: '2rem', borderRadius: '12px', textAlign: 'center', marginBottom: '1.5rem' }}>
           <h2 style={{ margin: 0, fontSize: '2rem' }}>🎉 L'équipe {game.winner === 'red' ? 'PIRATE' : 'MARINE'} remporte la partie ! 🎉</h2>
         </div>
       )}
 
-      {/* BANDEAU DU JOUEUR */}
       <div style={{ background: selectedRole.team === 'red' ? '#7f1d1d' : '#1e3a8a', padding: '1rem', borderRadius: '12px', marginBottom: '1.5rem', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
         <div style={{ fontSize: '1.2rem' }}>
           <strong>{pseudo}</strong> | {selectedRole.role === 'chef' ? 'Chef' : 'Joueur'}
@@ -144,7 +130,6 @@ function GameBoard() {
         </div>
       </div>
 
-      {/* INDICATEUR DE TOUR ET ACTIONS */}
       <div style={{ background: '#131730', padding: '1rem', borderRadius: '12px', marginBottom: '1.5rem', border: `2px solid ${game.currentTurn === 'red' ? '#ef4444' : '#3b82f6'}` }}>
         <h3 style={{ margin: '0 0 1rem 0', color: game.currentTurn === 'red' ? '#ef4444' : '#3b82f6' }}>
           Tour actuel : {game.currentTurn === 'red' ? 'PIRATES (Rouge)' : 'MARINE (Bleu)'}
@@ -152,13 +137,19 @@ function GameBoard() {
 
         {!game.winner && isCluePhase && (
           <div>
-            <p>Le Chef doit donner un indice...</p>
-            {isMyTurn && selectedRole.role === 'chef' && (
-              <form onSubmit={handleSendClue} style={{ marginTop: '1rem', display: 'flex', gap: '0.5rem' }}>
-                <input type="text" placeholder="Entrez votre indice (1 mot)..." value={inputWord} onChange={(e) => setInputWord(e.target.value)} style={{ padding: '0.5rem', borderRadius: '6px', background: '#0f1223', color: '#fff', flex: 1 }} required />
-                <input type="number" min="0" max="9" value={inputCount} onChange={(e) => setInputCount(e.target.value)} style={{ padding: '0.5rem', borderRadius: '6px', background: '#0f1223', color: '#fff', width: '60px' }} required />
-                <button type="submit" style={{ padding: '0.5rem 1rem', background: '#10b981', color: '#fff', border: 'none', borderRadius: '6px' }}>Transmettre</button>
-              </form>
+            {isMyTurn && selectedRole.role === 'chef' ? (
+              <>
+                <p style={{ fontWeight: 'bold' }}>C'est à vous ! Donnez un indice à votre équipe :</p>
+                <form onSubmit={handleSendClue} style={{ marginTop: '1rem', display: 'flex', gap: '0.5rem' }}>
+                  <input type="text" placeholder="Entrez votre indice (1 mot)..." value={inputWord} onChange={(e) => setInputWord(e.target.value)} style={{ padding: '0.5rem', borderRadius: '6px', background: '#0f1223', color: '#fff', flex: 1 }} required />
+                  <input type="number" min="0" max="9" value={inputCount} onChange={(e) => setInputCount(e.target.value)} style={{ padding: '0.5rem', borderRadius: '6px', background: '#0f1223', color: '#fff', width: '60px' }} required />
+                  <button type="submit" style={{ padding: '0.5rem 1rem', background: '#10b981', color: '#fff', border: 'none', borderRadius: '6px' }}>Transmettre</button>
+                </form>
+              </>
+            ) : (
+              <p style={{ fontStyle: 'italic', color: '#9ca3af' }}>
+                Attente de l'indice du Chef {game.currentTurn === 'red' ? 'Pirate' : 'Marine'}...
+              </p>
             )}
           </div>
         )}
@@ -175,11 +166,14 @@ function GameBoard() {
                 Finir mon tour (Passer)
               </button>
             )}
+            
+            {!isMyTurn && (
+              <p style={{ fontStyle: 'italic', color: '#9ca3af', marginTop: '1rem' }}>L'équipe adverse réfléchit...</p>
+            )}
           </div>
         )}
       </div>
 
-      {/* LA GRILLE DE CARTES */}
       <div className="board-grid" role="grid">
         {game.board.map((card) => {
           let borderColor = '#374178'
@@ -203,7 +197,6 @@ function GameBoard() {
             if (isAssassin) borderColor = '#000000'
           }
 
-          // Déterminer si le joueur a le droit de cliquer visuellement
           const canClick = !game.winner && isMyTurn && isGuessingPhase && selectedRole.role === 'joueur' && !card.revealed
 
           return (
@@ -211,17 +204,49 @@ function GameBoard() {
               key={card.cardId} 
               className="board-card" 
               role="gridcell"
-              onClick={() => handleCardClick(card.cardId, card.revealed)}
               style={{ 
                 border: `3px solid ${borderColor}`, 
                 opacity: opacity,
-                cursor: canClick ? 'pointer' : 'default',
-                background: (card.revealed) ? '#11152c' : '#1f2548'
+                background: (card.revealed) ? '#11152c' : '#1f2548',
+                display: 'flex',
+                flexDirection: 'column',
+                justifyContent: 'space-between',
+                padding: '0.8rem',
+                minHeight: '120px'
               }}
             >
-              <strong>{card.name}</strong>
-              <span>{card.image}</span>
-              {card.revealed && <span style={{ fontSize: '0.7rem', color: '#10b981', display: 'block' }}>✓ Découvert</span>}
+              <div>
+                <strong>{card.name}</strong>
+                <span style={{display: 'block', fontSize: '0.8rem', color: '#b7bdd8'}}>{card.image}</span>
+              </div>
+              
+              {card.revealed ? (
+                <span style={{ fontSize: '0.8rem', color: '#10b981', fontWeight: 'bold' }}>✓ Découvert</span>
+              ) : (
+                <div style={{ marginTop: '0.5rem' }}>
+                  {card.proposals?.length > 0 && (
+                    <div style={{ fontSize: '0.75rem', color: '#fbbf24', marginBottom: '0.5rem' }}>
+                      🖐️ {card.proposals.join(', ')}
+                    </div>
+                  )}
+                  {canClick && (
+                    <div style={{ display: 'flex', gap: '0.5rem' }}>
+                      <button 
+                        onClick={(e) => { e.stopPropagation(); socket.emit('card:propose', { cardId: card.cardId, player: currentPlayer }); }}
+                        style={{ flex: 1, padding: '0.4rem', fontSize: '0.75rem', background: '#374178', color: '#fff', border: 'none', borderRadius: '4px', cursor: 'pointer' }}
+                      >
+                        Proposer
+                      </button>
+                      <button 
+                        onClick={(e) => { e.stopPropagation(); socket.emit('card:reveal', { cardId: card.cardId, player: currentPlayer }); }}
+                        style={{ flex: 1, padding: '0.4rem', fontSize: '0.75rem', background: '#10b981', color: '#fff', border: 'none', borderRadius: '4px', cursor: 'pointer' }}
+                      >
+                        Révéler
+                      </button>
+                    </div>
+                  )}
+                </div>
+              )}
             </article>
           )
         })}
